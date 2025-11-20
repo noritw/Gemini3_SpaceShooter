@@ -128,8 +128,32 @@
             color: #888;
             text-align: center;
         }
-        @media (max-width: 600px) {
-            h1 { font-size: 16px; }
+        @media (max-width: 768px) {
+            body {
+                padding: 2px;
+                justify-content: flex-start;
+            }
+            h1 { 
+                font-size: 14px; 
+                margin: 2px 0;
+            }
+            .instructions {
+                font-size: 10px;
+                margin-top: 2px;
+                margin-bottom: 2px;
+            }
+            #ui {
+                font-size: 14px;
+                bottom: 5px;
+                left: 5px;
+            }
+            #muteBtn {
+                font-size: 14px;
+                padding: 1px 6px;
+            }
+            #gameContainer {
+                margin: 0;
+            }
         }
     </style>
 </head>
@@ -266,17 +290,25 @@ function resizeCanvas() {
     // 遊戲原始寬高比：480:640 = 3:4
     const gameAspectRatio = 480 / 640;
     
-    // 計算可用高度（留出標題和說明文字的空間）
-    const availableHeight = window.innerHeight - 100; // 預留約 100px 給標題和說明
+    // 檢測是否為行動裝置
+    const isMobile = window.innerWidth <= 768 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
+    // 計算可用高度（行動裝置減少預留空間）
+    const reservedSpace = isMobile ? 30 : 100; // 行動裝置只預留 30px（因為 CSS 已經更緊湊了）
+    const availableHeight = window.innerHeight - reservedSpace;
     const availableWidth = window.innerWidth;
     
+    // 行動裝置上不限制最大高度，讓它盡可能大
+    const maxHeight = isMobile ? availableHeight : 640;
+    const maxWidth = isMobile ? availableWidth : 480;
+    
     // 根據高度計算寬度
-    let newHeight = Math.min(availableHeight, 640);
+    let newHeight = Math.min(availableHeight, maxHeight);
     let newWidth = newHeight * gameAspectRatio;
     
     // 如果寬度超出視窗，則根據寬度重新計算
     if(newWidth > availableWidth) {
-        newWidth = Math.min(availableWidth, 480);
+        newWidth = Math.min(availableWidth, maxWidth);
         newHeight = newWidth / gameAspectRatio;
     }
     
