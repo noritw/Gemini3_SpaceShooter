@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Starfighter v3.0</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #050505;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+            touch-action: none;
+            user-select: none;
+        }
+        h1 {
+            margin: 0 0 10px 0;
+            text-shadow: 0 0 10px #0ff;
+            font-size: 20px;
+            pointer-events: none;
+        }
+        #gameContainer {
+            position: relative;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.2);
+            border: 2px solid #333;
+        }
+        canvas {
+            background-color: #000;
+            display: block;
+            cursor: none; 
+        }
+        #ui {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            pointer-events: none;
+            font-size: 16px;
+            font-weight: bold;
+            text-shadow: 1px 1px 0 #000;
+            z-index: 10;
+            display: flex;
+            gap: 15px;
+        }
+        /* 音量按鈕樣式 */
+        #muteBtn {
+            pointer-events: auto; /* 讓按鈕可以被點擊 */
+            cursor: pointer;
+            background: rgba(0,0,0,0.5);
+            border: 1px solid #0ff;
+            color: #0ff;
+            border-radius: 5px;
+            padding: 2px 8px;
+            font-size: 16px;
+            transition: 0.2s;
+        }
+        #muteBtn:hover {
+            background: #0ff;
+            color: #000;
+        }
+
+        #bossHud {
+            position: absolute;
+            top: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%;
+            height: 10px;
+            background: #333;
+            border: 1px solid #fff;
+            display: none;
+        }
+        #bossHpBar {
+            width: 100%;
+            height: 100%;
+            background: #f00;
+            box-shadow: 0 0 10px #f00;
+            transition: width 0.2s;
+        }
+        #bossName {
+            position: absolute;
+            top: -20px;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            font-size: 12px;
+            color: #f00;
+            letter-spacing: 2px;
+        }
+
+        #gameOverScreen, #winScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            z-index: 20;
+        }
+        button {
+            background: #0ff;
+            border: none;
+            padding: 15px 30px;
+            font-size: 20px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 20px;
+            box-shadow: 0 0 10px #0ff;
+            transition: 0.2s;
+        }
+        button:hover {
+            background: #fff;
+            box-shadow: 0 0 20px #fff;
+        }
+        .instructions {
+            margin-top: 5px;
+            font-size: 12px;
+            color: #888;
+            text-align: center;
+        }
+        @media (max-width: 600px) {
+            h1 { font-size: 16px; }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>NEON STARFIGHTER</h1>
+    
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="480" height="640"></canvas>
+        
+        <div id="ui">
+            <span>SCORE: <span id="scoreVal">0</span></span>
+            <span>HP: <span id="hpVal">100</span>%</span>
+            <div id="muteBtn" onclick="toggleAudio()">🔊 ON</div>
+        </div>
+        
+        <div id="bossHud">
+            <div id="bossName">WARNING: OMEGA CLASS DETECTED</div>
+            <div id="bossHpBar"></div>
+        </div>
+
+        <div id="gameOverScreen">
+            <h2 style="color: #f00; font-size: 40px; text-shadow: 0 0 20px #f00;">MISSION FAILED</h2>
+            <p>Final Score: <span id="finalScore">0</span></p>
+            <button onclick="resetGame()">RESTART SYSTEM</button>
+        </div>
+
+        <div id="winScreen">
+            <h2 style="color: #ff0; font-size: 40px; text-shadow: 0 0 20px #ff0;">MISSION COMPLETE</h2>
+            <p>Score: <span id="winScore">0</span></p>
+            <button onclick="resetGame()">PLAY AGAIN</button>
+        </div>
+    </div>
+    <div class="instructions">
+        PC: 滑鼠/WASD移動, 空白鍵/左鍵射擊 | 點擊畫面開啟音效
+    </div>
+
+<script>
+/** 1. 音訊系統 (升級版 - 讀取外部 MP3) **/
+const bgm = new Audio('bgm.mp3'); 
+bgm.loop = true;
+bgm.volume = 0.5;
+
+// 預先載入音效物件
+const sounds = {
+    shoot: new Audio('shoot.mp3'),
+    explode: new Audio('explode.mp3'),
+    hit: new Audio('hit.mp3'), // 如果你沒有下載這個，下面會做防呆處理
+    bossHit: new Audio('bossHit.mp3'),
+    warning: new Audio('warning.mp3')
+};
+
+// 設定音效音量 (爆炸聲通常比較大，可以調小一點)
+sounds.shoot.volume = 0.4;
+sounds.explode.volume = 0.6;
+sounds.bossHit.volume = 0.5; // Boss 被擊中音效音量
+sounds.warning.volume = 0.7; // Boss 出場警告音效音量
+// 允許同時播放多個相同音效 (例如連續射擊)
+function playFile(name) {
+    if(isMuted) return;
+    
+    const src = sounds[name];
+    if(src) {
+        // 複製一個音訊節點，這樣才能「連發」
+        // 如果不這樣做，快速射擊時聲音會被切斷
+        const clone = src.cloneNode(); 
+        clone.volume = src.volume;
+        clone.play().catch(e => {
+            // 如果檔案不存在或瀏覽器阻擋，這裡會默默失敗，不會報錯
+            // console.log("音效播放失敗:", name); 
+        });
+    }
+}
+
+let isMuted = false;
+let audioStarted = false;
+
+// 切換靜音功能
+function toggleAudio() {
+    isMuted = !isMuted;
+    const btn = document.getElementById('muteBtn');
+    
+    if (isMuted) {
+        btn.innerText = "🔇 OFF";
+        btn.style.borderColor = "#555";
+        btn.style.color = "#555";
+        bgm.pause();
+    } else {
+        btn.innerText = "🔊 ON";
+        btn.style.borderColor = "#0ff";
+        btn.style.color = "#0ff";
+        if(gameState === 'playing' && audioStarted) bgm.play().catch(e=>{});
+    }
+}
+
+// 取代原本的 playSound 函數
+function playSound(type) {
+    if (type === 'shoot') {
+        playFile('shoot');
+    } 
+    else if (type === 'explode') {
+        playFile('explode');
+    }
+    else if (type === 'boss_hit') {
+        // 使用 Boss 被擊中專用音效
+        playFile('bossHit'); 
+    }
+}
+
+// 圖片載入系統
+const images = {
+    player: new Image(),
+    enemy: new Image(),
+    boss: new Image()
+};
+images.player.src = 'PlayerPlane.png';
+images.enemy.src = 'Enemy.png';
+images.boss.src = 'Boss.png';
+
+// 啟動音訊
+function initAudio() {
+    if (audioStarted) return;
+    audioStarted = true;
+    if(!isMuted) {
+        bgm.play().catch(e => console.log("請點擊畫面以播放音樂"));
+    }
+}
+
+/** 2. 核心變數與設定 **/
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+    // 遊戲原始寬高比：480:640 = 3:4
+    const gameAspectRatio = 480 / 640;
+    
+    // 計算可用高度（留出標題和說明文字的空間）
+    const availableHeight = window.innerHeight - 100; // 預留約 100px 給標題和說明
+    const availableWidth = window.innerWidth;
+    
+    // 根據高度計算寬度
+    let newHeight = Math.min(availableHeight, 640);
+    let newWidth = newHeight * gameAspectRatio;
+    
+    // 如果寬度超出視窗，則根據寬度重新計算
+    if(newWidth > availableWidth) {
+        newWidth = Math.min(availableWidth, 480);
+        newHeight = newWidth / gameAspectRatio;
+    }
+    
+    // 設定 canvas 樣式尺寸（實際繪圖尺寸保持 480x640）
+    canvas.style.width = newWidth + 'px';
+    canvas.style.height = newHeight + 'px';
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+window.addEventListener('load', resizeCanvas); // 頁面完全載入後再調整一次
+
+const scoreEl = document.getElementById('scoreVal');
+const hpEl = document.getElementById('hpVal');
+const finalScoreEl = document.getElementById('finalScore');
+const winScoreEl = document.getElementById('winScore');
+const gameOverScreen = document.getElementById('gameOverScreen');
+const winScreen = document.getElementById('winScreen');
+const bossHud = document.getElementById('bossHud');
+const bossHpBar = document.getElementById('bossHpBar');
+
+let gameState = 'playing'; 
+let score = 0;
+let frameCount = 0;
+let bossActive = false;
+
+// 玩家物件
+const player = {
+    x: canvas.width / 2,
+    y: canvas.height - 100,
+    w: 30,
+    h: 40,
+    speed: 5,
+    color: '#0ff',
+    hp: 100,
+    isShooting: false,
+    cooldown: 0
+};
+
+// Boss 物件
+let boss = {
+    x: canvas.width / 2,
+    y: -200,
+    w: 240, // 加大寬度
+    h: 240, // 初始值，稍後會根據圖片比例自動調整
+    hp: 1000,
+    maxHp: 1000,
+    vx: 2,
+    vy: 1,
+    phase: 0, 
+    cooldown: 0
+};
+
+let bullets = [];
+let enemies = [];
+let particles = [];
+let stars = [];
+
+const keys = {};
+let mousePos = { x: canvas.width/2, y: canvas.height - 100 };
+let isTouchDevice = false;
+
+for(let i=0; i<50; i++){
+    stars.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        size: Math.random() * 2 + 0.5,
+        speed: Math.random() * 3 + 0.5
+    });
+}
+
+/** 3. 事件監聽 **/
+window.addEventListener('keydown', e => {
+    keys[e.code] = true;
+    if(e.code === 'Space') player.isShooting = true;
+    initAudio(); // 鍵盤互動啟動音樂
+});
+window.addEventListener('keyup', e => {
+    keys[e.code] = false;
+    if(e.code === 'Space') player.isShooting = false;
+});
+
+canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    mousePos.x = (e.clientX - rect.left) * scaleX;
+    mousePos.y = (e.clientY - rect.top) * scaleY;
+    
+    if(!isTouchDevice) {
+        player.x = mousePos.x;
+        player.y = mousePos.y;
+        // 限制移動範圍，避免與介面重疊
+        if(player.x < player.w/2) player.x = player.w/2;
+        if(player.x > canvas.width - player.w/2) player.x = canvas.width - player.w/2;
+        if(player.y < player.h/2) player.y = player.h/2;
+        if(player.y > canvas.height - player.h/2 - 50) player.y = canvas.height - player.h/2 - 50;
+    }
+});
+canvas.addEventListener('mousedown', () => {
+    player.isShooting = true;
+    initAudio(); // 滑鼠互動啟動音樂
+});
+canvas.addEventListener('mouseup', () => player.isShooting = false);
+
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    isTouchDevice = true;
+    player.isShooting = true; 
+    initAudio(); // 觸控互動啟動音樂
+}, {passive: false});
+
+canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const touch = e.touches[0];
+    player.x = (touch.clientX - rect.left) * scaleX;
+    player.y = (touch.clientY - rect.top) * scaleY - 50;
+    // 限制移動範圍，避免與介面重疊
+    if(player.x < player.w/2) player.x = player.w/2;
+    if(player.x > canvas.width - player.w/2) player.x = canvas.width - player.w/2;
+    if(player.y < player.h/2) player.y = player.h/2;
+    if(player.y > canvas.height - player.h/2 - 50) player.y = canvas.height - player.h/2 - 50;
+}, {passive: false});
+
+canvas.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    player.isShooting = false;
+});
+
+/** 4. 遊戲主循環 **/
+function update() {
+    if(gameState !== 'playing') return;
+
+    frameCount++;
+
+    stars.forEach(star => {
+        star.y += star.speed + (bossActive ? 5 : 0);
+        if(star.y > canvas.height) {
+            star.y = 0;
+            star.x = Math.random() * canvas.width;
+        }
+    });
+
+    if (keys['ArrowUp'] || keys['KeyW']) player.y -= player.speed;
+    if (keys['ArrowDown'] || keys['KeyS']) player.y += player.speed;
+    if (keys['ArrowLeft'] || keys['KeyA']) player.x -= player.speed;
+    if (keys['ArrowRight'] || keys['KeyD']) player.x += player.speed;
+    
+    if(player.x < player.w/2) player.x = player.w/2;
+    if(player.x > canvas.width - player.w/2) player.x = canvas.width - player.w/2;
+    if(player.y < player.h/2) player.y = player.h/2;
+    // 限制底部移動範圍，避免與介面重疊（留出約 50 像素給介面）
+    if(player.y > canvas.height - player.h/2 - 50) player.y = canvas.height - player.h/2 - 50;
+
+    if(player.isShooting && player.cooldown <= 0) {
+        createBullet(player.x, player.y - 20, 0, -12, 'player');
+        createBullet(player.x - 15, player.y - 10, -1, -10, 'player'); 
+        createBullet(player.x + 15, player.y - 10, 1, -10, 'player');
+        player.cooldown = 8;
+        playSound('shoot');
+    }
+    if(player.cooldown > 0) player.cooldown--;
+
+    if(!bossActive) {
+        if(score >= 4000) {
+            startBossBattle();
+        } else {
+            let spawnRate = Math.max(20, 60 - Math.floor(score / 500));
+            if(frameCount % spawnRate === 0) {
+                // 有 30% 機率生成一群敵人（3-5 隻）
+                if(Math.random() < 0.3) {
+                    spawnEnemyGroup();
+                } else {
+                    spawnEnemy();
+                }
+            }
+        }
+    } else {
+        updateBoss();
+    }
+
+    updateBullets();
+    updateEnemies();
+    updateParticles();
+    checkCollisions();
+    
+    scoreEl.innerText = score;
+    hpEl.innerText = Math.ceil(player.hp);
+    if(player.hp <= 0) triggerGameOver();
+}
+
+/** 5. Boss 邏輯 **/
+function startBossBattle() {
+    bossActive = true;
+    enemies = [];
+    boss.y = -boss.h - 50; // 確保 Boss 從畫面外上方進場
+    boss.hp = boss.maxHp;
+    boss.phase = 0;
+    bossHud.style.display = 'block';
+    // 播放 Boss 出場警告音效
+    playFile('warning');
+}
+
+function updateBoss() {
+    // 自動修正 Boss 高度以符合圖片比例 (不壓縮)
+    if(images.boss.complete && images.boss.naturalWidth > 0) {
+        boss.h = boss.w * (images.boss.naturalHeight / images.boss.naturalWidth);
+    }
+
+    if(boss.phase === 0) {
+        boss.y += 1;
+        if(boss.y >= 150) boss.phase = 1; // 讓 Boss 停在稍微低一點的位置 (原本是 100)
+    } 
+    else {
+        boss.x = (canvas.width / 2) + Math.sin(frameCount * 0.02) * 150;
+        boss.cooldown--;
+        if(boss.cooldown <= 0) {
+            const attackType = Math.random();
+            if(attackType > 0.5) {
+                for(let i = -3; i <= 3; i++) {
+                    createBullet(boss.x, boss.y + 40, i * 2, 4, 'enemy');
+                }
+                playSound('shoot');
+            } else {
+                let angle = Math.atan2(player.y - boss.y, player.x - boss.x);
+                createBullet(boss.x, boss.y + 40, Math.cos(angle)*6, Math.sin(angle)*6, 'enemy');
+                createBullet(boss.x - 30, boss.y + 40, Math.cos(angle)*6, Math.sin(angle)*6, 'enemy');
+                createBullet(boss.x + 30, boss.y + 40, Math.cos(angle)*6, Math.sin(angle)*6, 'enemy');
+                playSound('shoot');
+            }
+            boss.cooldown = 40;
+        }
+    }
+    bossHpBar.style.width = (boss.hp / boss.maxHp * 100) + "%";
+    if(boss.hp <= 0) triggerWin();
+}
+
+function updateBullets() {
+    bullets.forEach((b, index) => {
+        b.x += b.vx;
+        b.y += b.vy;
+        if(b.y < -50 || b.y > canvas.height + 50 || b.x < -50 || b.x > canvas.width + 50) {
+            bullets.splice(index, 1);
+        }
+    });
+}
+
+function updateEnemies() {
+    enemies.forEach((e, index) => {
+        e.y += e.speed;
+        e.x += Math.sin(frameCount * 0.05) * e.sway;
+        
+        // 根據敵人類型調整攻擊頻率
+        let shootInterval = 45; // 縮短射擊間隔（從 60 降到 45）
+        let shootChance = 0.5; // 增加射擊機率（從 0.3 提升到 0.5）
+        let multiShot = false; // 是否一次發射多個子彈
+        
+        if(e.type === 2) {
+            // type 2 敵人：扇形散射（3 發）
+            multiShot = true;
+            shootInterval = 50;
+            shootChance = 0.4;
+        }
+        else if(e.type === 3) {
+            // type 3 敵人：更頻繁地射擊，且一次 5 發扇形
+            multiShot = true;
+            shootInterval = 40;
+            shootChance = 0.5;
+        }
+        
+        if(frameCount % shootInterval === 0 && Math.random() < shootChance) {
+            if(multiShot) {
+                // 多發子彈：扇形散射
+                let bulletCount = e.type === 3 ? 5 : 3; // type 3 發 5 發，type 2 發 3 發
+                let spreadAngle = e.type === 3 ? 0.8 : 0.6; // 散射角度
+                
+                for(let i = 0; i < bulletCount; i++) {
+                    let angle = (i - (bulletCount - 1) / 2) * spreadAngle;
+                    createBullet(e.x, e.y, Math.sin(angle) * 2, Math.cos(angle) * 5, 'enemy');
+                }
+            } else {
+                // 單發子彈
+                createBullet(e.x, e.y, 0, 5, 'enemy');
+            }
+        }
+        
+        if(e.y > canvas.height + 50) enemies.splice(index, 1);
+    });
+}
+
+function updateParticles() {
+    particles.forEach((p, index) => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= 0.05;
+        if(p.life <= 0) particles.splice(index, 1);
+    });
+}
+
+/** 6. 碰撞檢測 **/
+function checkCollisions() {
+    bullets.forEach((b, bIdx) => {
+        if(b.type === 'player') {
+            enemies.forEach((e, eIdx) => {
+                if (dist(b.x, b.y, e.x, e.y) < e.size + 10) {
+                    bullets.splice(bIdx, 1);
+                    e.hp -= 10;
+                    createParticles(b.x, b.y, '#fff', 2);
+                    if(e.hp <= 0) {
+                        enemies.splice(eIdx, 1);
+                        score += e.scoreVal;
+                        playSound('explode');
+                        createParticles(e.x, e.y, e.color, 10);
+                    }
+                }
+            });
+            if(bossActive && boss.phase === 1) {
+                if(b.x > boss.x - boss.w/2 && b.x < boss.x + boss.w/2 &&
+                   b.y > boss.y - boss.h/2 && b.y < boss.y + boss.h/2) {
+                       bullets.splice(bIdx, 1);
+                       boss.hp -= 10;
+                       createParticles(b.x, b.y, '#faa', 2);
+                       playSound('boss_hit');
+                }
+            }
+        } 
+        else if(b.type === 'enemy') {
+            if(dist(player.x, player.y, b.x, b.y) < player.w/2 + 5) {
+                player.hp -= 10;
+                bullets.splice(bIdx, 1);
+                createParticles(player.x, player.y, '#f00', 5);
+                playSound('explode');
+            }
+        }
+    });
+
+    enemies.forEach((e, eIdx) => {
+        if(dist(player.x, player.y, e.x, e.y) < player.w/2 + e.size) {
+            player.hp -= 20;
+            enemies.splice(eIdx, 1);
+            createParticles(player.x, player.y, '#f00', 10);
+            playSound('explode');
+        }
+    });
+}
+
+function draw() {
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = '#ffffff';
+    stars.forEach(star => {
+        ctx.globalAlpha = Math.random() * 0.5 + 0.3;
+        ctx.fillRect(star.x, star.y, star.size, star.size);
+    });
+    ctx.globalAlpha = 1.0;
+
+    if(bossActive) {
+        ctx.save();
+        ctx.translate(boss.x, boss.y);
+        
+        // Boss 無敵階段（phase 0）時降低亮度，提示玩家還不能攻擊
+        if(boss.phase === 0) {
+            ctx.globalAlpha = 0.4; // 打暗，表示無敵狀態
+        } else {
+            ctx.globalAlpha = 1.0; // 正常亮度，可以攻擊
+        }
+        
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = '#f00';
+        // 使用 Boss 圖片
+        ctx.drawImage(images.boss, -boss.w/2, -boss.h/2, boss.w, boss.h);
+        ctx.restore();
+        ctx.globalAlpha = 1.0; // 恢復透明度，避免影響其他元素
+    }
+
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    
+    // 保留噴射火焰效果
+    ctx.beginPath();
+    ctx.moveTo(-5, player.h/2 - 5);
+    ctx.lineTo(5, player.h/2 - 5);
+    ctx.lineTo(0, player.h/2 + 15 + Math.random()*15);
+    ctx.fillStyle = '#ffaa00';
+    ctx.fill();
+
+    // 使用 Player 圖片
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = player.color;
+    ctx.drawImage(images.player, -player.w/2, -player.h/2, player.w, player.h);
+    ctx.restore();
+
+    enemies.forEach(e => {
+        ctx.save();
+        ctx.translate(e.x, e.y);
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = e.color;
+        
+        // 嘗試根據敵人顏色改變色相 (如果是紫色強敵)
+        if(e.color === '#f0f') {
+            ctx.filter = 'hue-rotate(180deg)'; 
+        }
+
+        // 使用 Enemy 圖片 (e.size 是半徑，所以寬高要 * 2)
+        ctx.drawImage(images.enemy, -e.size, -e.size, e.size*2, e.size*2);
+        ctx.restore();
+    });
+
+    bullets.forEach(b => {
+        ctx.save();
+        ctx.fillStyle = b.type === 'player' ? '#ff0' : '#f50';
+        ctx.shadowBlur = 5;
+        ctx.shadowColor = ctx.fillStyle;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.type === 'player' ? 4 : 6, 0, Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+    });
+
+    particles.forEach(p => {
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = p.life;
+        ctx.fillRect(p.x, p.y, 3, 3);
+    });
+    ctx.globalAlpha = 1.0;
+
+    requestAnimationFrame(() => {
+        update();
+        draw();
+    });
+}
+
+function spawnEnemy() {
+    const type = Math.floor(Math.random() * 3) + 1; 
+    let enemy = {
+        x: Math.random() * (canvas.width - 40) + 20,
+        y: -50,
+        hp: 30, // 增加基礎 HP（從 15 提升到 30）
+        type: type,
+        speed: 2.5, // 增加移動速度（從 2 提升到 2.5）
+        sway: 0,
+        size: 15,
+        color: '#f00',
+        scoreVal: 100
+    };
+    if(type === 2) {
+        enemy.color = '#f0f'; 
+        enemy.sway = 2.5; // 增加搖擺幅度
+        enemy.hp = 40; // 增加 HP（從 20 提升到 40）
+        enemy.speed = 2.2; // 稍微慢一點但更難預測
+        enemy.scoreVal = 200; // 增加分數獎勵
+    } 
+    else if(type === 3) {
+        // 新增 type 3：更強的敵人
+        enemy.color = '#ff0'; 
+        enemy.hp = 50; // 更高的 HP
+        enemy.speed = 3; // 更快的速度
+        enemy.size = 18; // 稍微大一點
+        enemy.scoreVal = 250; // 更高的分數獎勵
+    }
+    enemies.push(enemy);
+}
+
+function spawnEnemyGroup() {
+    // 生成一群敵人（3-5 隻），排列成一行或一組
+    const groupSize = Math.floor(Math.random() * 3) + 3; // 3-5 隻
+    const formation = Math.random(); // 決定排列方式
+    
+    if(formation < 0.5) {
+        // 橫向排列：一排敵人
+        const startX = Math.random() * (canvas.width - 100) + 50;
+        const spacing = Math.min(80, (canvas.width - startX) / groupSize);
+        
+        for(let i = 0; i < groupSize; i++) {
+            let enemy = {
+                x: startX + i * spacing,
+                y: -50 - i * 10, // 稍微錯開高度，更有層次感
+                hp: 30,
+                type: Math.floor(Math.random() * 2) + 1, // type 1 或 2
+                speed: 2.5,
+                sway: 0,
+                size: 15,
+                color: '#f00',
+                scoreVal: 100
+            };
+            
+            if(enemy.type === 2) {
+                enemy.color = '#f0f';
+                enemy.sway = 2.5;
+                enemy.hp = 40;
+                enemy.speed = 2.2;
+                enemy.scoreVal = 200;
+            }
+            
+            enemies.push(enemy);
+        }
+    } else {
+        // 緊密排列：一小群敵人
+        const centerX = Math.random() * (canvas.width - 100) + 50;
+        const centerY = -50;
+        
+        for(let i = 0; i < groupSize; i++) {
+            let angle = (i / groupSize) * Math.PI * 2; // 圓形排列
+            let radius = 30;
+            
+            let enemy = {
+                x: centerX + Math.cos(angle) * radius,
+                y: centerY + Math.sin(angle) * radius,
+                hp: 30,
+                type: Math.floor(Math.random() * 2) + 1,
+                speed: 2.5,
+                sway: 0,
+                size: 15,
+                color: '#f00',
+                scoreVal: 100
+            };
+            
+            if(enemy.type === 2) {
+                enemy.color = '#f0f';
+                enemy.sway = 2.5;
+                enemy.hp = 40;
+                enemy.speed = 2.2;
+                enemy.scoreVal = 200;
+            }
+            
+            enemies.push(enemy);
+        }
+    }
+}
+
+function createBullet(x, y, vx, vy, type) {
+    bullets.push({ x, y, vx, vy, type });
+}
+
+function createParticles(x, y, color, count) {
+    for(let i=0; i<count; i++) {
+        particles.push({
+            x: x, y: y,
+            vx: (Math.random() - 0.5) * 10,
+            vy: (Math.random() - 0.5) * 10,
+            life: 1.0, color: color
+        });
+    }
+}
+
+function dist(x1, y1, x2, y2) {
+    return Math.sqrt((x1-x2)**2 + (y1-y2)**2);
+}
+
+function triggerGameOver() {
+    gameState = 'gameover';
+    finalScoreEl.innerText = score;
+    gameOverScreen.style.display = 'flex';
+    canvas.style.cursor = 'default';
+    bossHud.style.display = 'none';
+    bgm.pause(); // 遊戲結束停音樂
+}
+
+function triggerWin() {
+    gameState = 'win';
+    winScoreEl.innerText = score + 5000; 
+    winScreen.style.display = 'flex';
+    canvas.style.cursor = 'default';
+    createParticles(boss.x, boss.y, '#fff', 100);
+    playFile('hit'); // Boss 被打倒時播放原本的 hit 音效
+    playSound('explode'); // 同時播放爆炸音效增加效果
+    bossHud.style.display = 'none';
+    bgm.pause(); // 勝利也停音樂
+}
+
+function resetGame() {
+    score = 0;
+    player.hp = 100;
+    player.x = canvas.width/2;
+    player.y = canvas.height - 100;
+    bullets = [];
+    enemies = [];
+    particles = [];
+    gameState = 'playing';
+    bossActive = false;
+    
+    gameOverScreen.style.display = 'none';
+    winScreen.style.display = 'none';
+    bossHud.style.display = 'none';
+    canvas.style.cursor = 'none';
+
+    // 重啟音樂
+    if(!isMuted) {
+        bgm.currentTime = 0;
+        bgm.play().catch(e => {});
+    }
+    
+    update();
+    draw();
+}
+
+draw();
+</script>
+</body>
+</html>
